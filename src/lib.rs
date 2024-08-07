@@ -1,32 +1,67 @@
 use anyhow::Result;
 use futures_lite::StreamExt;
-use iroh::blobs::store::Store; // trait
-use iroh::{client::docs::Doc, util::fs::path_to_key};
+use iroh::blobs::store::Store;
+use iroh::{client::docs::Doc, node::Node, util::fs::path_to_key};
 use std::path::{Path, PathBuf};
 
 mod cli;
 pub use cli::Cli;
 
-pub struct Lis<D: Store> {
-    pub iroh_node: iroh::node::Node<D>,
+pub struct Lis<D: Store + Sized> {
+    pub iroh_node: Node<D>,
     author: iroh::docs::AuthorId,
 }
 
-pub enum NodeType {
+/// In memory node.
+pub type MemNode = Node<iroh_blobs::store::mem::Store>;
+
+/// Persistent node.
+pub type FsNode = Node<iroh_blobs::store::fs::Store>;
+
+impl MemNode {
+    /// Returns a new builder for the [`Node`], by default configured to run in memory.
+    ///
+    /// Once done with the builder call [`Builder::spawn`] to create the node.
+    pub fn memory() -> Builder<iroh_blobs::store::mem::Store> {
+        Builder::default()
+    }
+}
+
+impl FsNode {
+    /// Returns a new builder for the [`Node`], configured to persist all data
+    /// from the given path.
+    ///
+    /// Once done with the builder call [`Builder::spawn`] to create the node.
+    pub async fn persistent(
+        root: impl AsRef<Path>,
+    ) -> Result<Builder<iroh_blobs::store::fs::Store>> {
+        Builder::default().persist(root).await
+    }
+}
+
+enum IrohNode {
+    Mem(Node<iroh::blobs::store::mem::Store>),
+    Disk(Node<iroh::blobs::store::fs::Store>),
+}
+
+pub enum IrohNodeType {
     Mem,
     Disk(PathBuf),
 }
 
-impl<D: Store> Lis<D> {
-    pub async fn new(node_type: NodeType) -> Result<Self> {
-        let iroh_node;
-        match node_type {
-            NodeType::Mem => {
-                iroh_node = iroh::node::Node::memory().spawn().await?;
-            }
-            NodeType::Disk(root) => {
-                iroh_node = iroh::node::Node::persistent(root).await?.spawn().await?;
-            }
+// /// Extracts node from IrohNode enum
+// fn get_node(iroh_node: IrohNode) -> Box<dyn Store> {
+//     match iroh_node {
+//         IrohNode::Mem(node) => Box::new(node),
+//         IrohNode::Disk(node) => Box::new(node),
+//     }
+// }
+
+impl Lis {
+    pub async fn new(node_type: IrohNodeType) -> Result<Self> {
+        let iroh_node = match node_type {
+            IrohNodeType::Mem => iroh::node::Node::memory().spawn().await?,
+            IrohNodeType::Disk(root) => iroh::node::Node::persistent(root).await?.spawn().await?,
         };
         let author = iroh_node.authors().create().await?; // TODO: add this to Lis
         let lis = Lis {
