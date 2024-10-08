@@ -3,13 +3,14 @@ use std::path::Component;
 use iroh::docs::NamespaceId;
 
 use crate::{
+    doc::LisDoc,
     objects::{Children, FromNamespaceId, LisFile, Metadata, ObjectType},
     prelude::*,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LisDir {
-    pub doc_id: NamespaceId,
+    doc: LisDoc,
     children: Children,
     metadata: Metadata,
 }
@@ -24,31 +25,14 @@ impl LisDir {
         let (children, children_id) = Children::new(&node.clone()).await?;
         let (metadata, metadata_id) = Metadata::new(&node.clone()).await?;
 
-        let doc = node.docs().create().await?;
-        doc.set_bytes(
-            node.authors().default().await?,
-            Key::from("metadata".to_string()),
-            namespace_id_to_bytes(metadata_id),
-        )
-        .await?;
-        doc.set_bytes(
-            node.authors().default().await?,
-            Key::from("children".to_string()),
-            namespace_id_to_bytes(children_id),
-        )
-        .await?;
-
-        // set type to "dir"
-        doc.set_bytes(
-            node.authors().default().await?,
-            Key::from(".type".to_string()),
-            Bytes::from("dir".to_string()),
-        )
-        .await?;
+        let doc = LisDoc::new(node).await?;
+        doc.set(node, ".metadata", metadata_id).await?;
+        doc.set(node, ".children", children_id).await?;
+        doc.set(node, ".type", "dir").await?;
 
         Ok((
             Self {
-                doc_id: doc.id(),
+                doc,
                 children,
                 metadata,
             },
@@ -61,7 +45,7 @@ impl LisDir {
     }
 
     pub async fn find(&self, node: &Iroh, path: &Path) -> Result<Option<ObjectType>> {
-        let mut cur_dir = LisDir::from_namespace_id(&node.clone(), self.doc_id).await?;
+        let mut cur_dir = LisDir::from_namespace_id(&node.clone(), self.doc.id()).await?;
         for component in path.components() {
             match component {
                 Component::Normal(osstr) => {
@@ -95,10 +79,10 @@ impl LisDir {
 
 impl FromNamespaceId for LisDir {
     async fn from_namespace_id(node: &Iroh, id: NamespaceId) -> Result<Self> {
-        let doc = load_doc(&node, id).await?;
+        let doc = LisDoc::from_namespace_id(node, id).await?;
 
         // check type
-        if doc_type(&node, &doc).await? != DocType::DirDoc {
+        if doc.doc_type(node) != DocType::DirDoc {
             return Err(anyhow!("NamespaceId does not correspond to a dir doc"));
         }
 
@@ -123,9 +107,9 @@ impl FromNamespaceId for LisDir {
         )?;
 
         Ok(Self {
-            doc_id: id,
-            children: Children::from_namespace_id(&node, children_id).await?,
-            metadata: Metadata::from_namespace_id(&node, metadata_id).await?,
+            doc: LisDoc::new(&node.clone()).await?,
+            children: Children::from_namespace_id(&node.clone(), children_id).await?,
+            metadata: Metadata::from_namespace_id(&node.clone(), metadata_id).await?,
         })
     }
 }

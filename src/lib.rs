@@ -6,6 +6,8 @@ use prelude::*;
 mod util;
 use util::get_relative_path;
 
+mod doc;
+
 mod cli;
 pub use cli::{Cli, Commands};
 

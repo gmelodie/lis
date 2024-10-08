@@ -1,10 +1,10 @@
 use bytes::Bytes;
 
-use crate::{objects::FromNamespaceId, prelude::*};
+use crate::{doc::LisDoc, objects::FromNamespaceId, prelude::*};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metadata {
-    doc_id: NamespaceId,
+    doc: LisDoc,
     pub items: usize,
 }
 impl Metadata {
@@ -36,14 +36,17 @@ impl Metadata {
         ))
     }
 
-    pub async fn save(&self, node: &Iroh) -> Result<()> {
+    pub async fn save(&mut self, node: &Iroh) -> Result<()> {
         let doc = load_doc(&node, self.doc_id).await?;
 
-        let key = Key::from("items".to_string());
-        let value: Bytes = Bytes::copy_from_slice(&self.items.to_ne_bytes());
-
-        doc.set_bytes(node.authors().default().await?, key, value)
+        self.doc
+            .set(
+                node,
+                "items",
+                Bytes::copy_from_slice(&self.items.to_ne_bytes()),
+            )
             .await?;
+
         Ok(())
     }
 }

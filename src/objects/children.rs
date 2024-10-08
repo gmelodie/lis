@@ -1,49 +1,36 @@
 use crate::{
-    objects::{dir::LisDir, FromNamespaceId, ObjectType},
+    doc::LisDoc,
+    objects::{dir::LisDir, doc::LisDoc, FromNamespaceId, ObjectType},
     prelude::*,
 };
 use futures_lite::stream::StreamExt; // For collect
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Children {
-    doc_id: NamespaceId,
+    doc: LisDoc,
 }
 impl Children {
     pub async fn new(node: &Iroh) -> Result<(Self, NamespaceId)> {
-        let doc = node.docs().create().await?;
+        let doc = LisDoc::new(&node.clone()).await?;
 
         // set type to "children"
-        doc.set_bytes(
-            node.authors().default().await?,
-            Key::from(".type".to_string()),
-            Bytes::from("children".to_string()),
-        )
-        .await?;
+        doc.set(node, ".type", "children").await?;
 
-        Ok((Self { doc_id: doc.id() }, doc.id()))
+        Ok((Self { doc }, doc.id()))
     }
 
     pub async fn get(&self, node: &Iroh, path: PathBuf) -> Result<Option<ObjectType>> {
         if path.components().count() != 1 {
             return Err(anyhow!("Incorrect path, more than one component"));
         }
-        let doc = load_doc(&node, self.doc_id).await?;
-
         let key = Key::from(path);
-
-        let query = Query::key_exact(key);
-        let entry = match doc.get_one(query).await? {
-            Some(entry) => entry,
-            None => return Ok(None),
-        };
-
-        let content = entry.content_bytes(&node.clone()).await?;
-        // bytes to doc id
+        let content = doc.get(&node.clone(), key).await?;
         let doc_id = bytes_to_namespace_id(content)?;
         // lisdir or file from doc id
         // TODO: support files
-        let object = LisDir::from_namespace_id(node, doc_id).await?;
-        Ok(Some(ObjectType::Dir(object)))
+        Ok(Some(ObjectType::Dir(
+            LisDir::from_namespace_id(node, doc_id).await?, // TODO: from_namespace_id for ObjectType
+        )))
     }
 
     pub async fn put(&self, node: &Iroh, path: PathBuf, object: LisDir) -> Result<()> {
